@@ -1,0 +1,64 @@
+{
+  "protocol": "http",
+  "host": "10.71.21.82",
+  "port": 28912,
+  "path": "/NmspServlet/",
+  "headers" : [
+    "Content-Type: multipart/form-data; boundary=sk29ksksk82ksmsgdfg4rgs5llopsja82",
+    "Connection: Keep-Alive",
+    "Transfer-Encoding: chunked"
+  ],
+  "multi-part": [
+    {
+      "type": "json",
+      "parameters": [
+        "Content-Disposition: form-data; name=RequestData",
+        "Content-Type: application/json; charset=utf-8"
+      ],
+      "body": {
+        "cmdName": "NCS_ASR_CMD",
+        "appId": "",
+        "appKey": "",
+        "uId": "uid1",
+        "inCodec": "PCM_16_16K",
+        "outCodec": "PCM_16_16K",
+        "cmdDict": {
+          "dictation_type": "nma_dm_main",
+          "application": "BANMA",
+          "dictation_language": "eng-USA",
+          "locale": "Canada",
+          "application_name": "Cerence Cloud Client Application",
+          "organization_id": "Cerence",
+          "client_os_type": "Mac Sierra",
+          "client_os_version": "10.0",
+          "network_type": "4G",
+          "audio_source": "SpeakerAndMicrophone",
+          "location": "<+45.5086699, -73.5539925> +/- 99.00m",
+          "application_session_id": "sample_application_sessionid",
+          "ui_langugage": "en"
+        }
+      }
+    },
+    {
+      "type": "json",
+      "parameters": [
+        "Content-Disposition: form-data; name=DictParameter; paramName=REQUEST_INFO",
+        "Content-Type: application/json; charset=utf-8"
+      ],
+      "body": {
+        "start": 0,
+        "end": 0,
+        "text": "",
+        "intermediate_response_mode": "UtteranceDetectionWithPartialRecognition"
+      }
+    },
+    {
+      "type": "audio",
+      "parameters": [
+        "Content-Disposition: form-data; name=ConcludingAudioParameter; paramName=AUDIO_INFO",
+        "Content-Type: audio/x-wav;codec=pcm;bit=16;rate=16000"
+      ],
+      "body": "news_eng_usa_100s.wav"
+    }
+  ]
+}
