@@ -16,9 +16,4 @@ func init() {
 	ConsoleLogger = log.New(os.Stdout,
 		"INFO: ",
 		log.Ldate|log.Lmicroseconds|log.Lshortfile)
-
-	FileLogger = log.New(os.Stdout,
-		"INFO: ",
-		log.Ldate|log.Lmicroseconds|log.Lshortfile)
-
 }

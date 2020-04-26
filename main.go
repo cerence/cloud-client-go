@@ -2,10 +2,11 @@ package main
 
 import (
 	"bufio"
-	. "cloud-client-go/handler"
+	. "cloud-client-go/client"
 	. "cloud-client-go/util"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 	"sync"
@@ -13,19 +14,12 @@ import (
 )
 
 var (
-	wg        sync.WaitGroup
-	jsonType  = "json"
-	audioType = "audio"
-)
-
-const (
-	audioPartSize  = 640
-	audioPartSleep = 20 * time.Millisecond
+	wg sync.WaitGroup
 )
 
 func main() {
 	config := ReadConfig("asr.json")
-	client := NewHttpV2Client(config.Host, config.Port, WithProtocol(config.Protocol), WithPath(config.Path))
+	client := NewHttpV2Client(config.Host, config.Port, WithProtocol(config.Protocol), WithPath(config.Path), WithBoundary(config.GetBoundary()))
 	if client == nil {
 		ConsoleLogger.Fatalln("Can't new connection")
 	}
@@ -38,38 +32,47 @@ func main() {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		boundary := config.GetBoundary()
 		if err := client.SendHeaders(config.Headers); err != nil {
 			ConsoleLogger.Fatalln(err)
 		}
 		for _, part := range config.MultiParts {
-			if part.Type == jsonType {
+			if part.Type == JsonType {
 				bodyData, _ := json.Marshal(part.Body)
-				if err := client.SendMultiPart(boundary, part.Parameters, bodyData); err != nil {
+				if err := client.SendMultiPart(part.Parameters, bodyData); err != nil {
 					ConsoleLogger.Fatalln(err)
 				}
 			}
-			if part.Type == audioType {
+			if part.Type == AudioType {
 				audioFile, _ := os.Open(fmt.Sprintf("%s", part.Body))
-
-				r := bufio.NewReader(audioFile)
-				b := make([]byte, audioPartSize)
-
-				for true {
-					n, er := r.Read(b)
-					if err := client.SendMultiPart(boundary, part.Parameters, b[0:n]); err != nil {
-						ConsoleLogger.Fatalln(err)
+				if part.StreamingEnable {
+					sleep, err := time.ParseDuration(part.StreamTiming)
+					if err != nil {
+						ConsoleLogger.Fatal(fmt.Sprintf("invalid stream_timing:%s", part.StreamTiming))
 					}
+					r := bufio.NewReader(audioFile)
+					b := make([]byte, part.StreamSize)
+					for {
+						n, er := r.Read(b)
+						if err := client.SendMultiPart(part.Parameters, b[0:n]); err != nil {
+							ConsoleLogger.Fatalln(err)
+						}
 
-					if er != nil {
-						ConsoleLogger.Printf(er.Error())
-						break
+						if er != nil {
+							ConsoleLogger.Printf(er.Error())
+							break
+						}
+						time.Sleep(sleep)
 					}
-					time.Sleep(audioPartSleep)
+				} else {
+					all, err := ioutil.ReadAll(audioFile)
+					if err != nil {
+						ConsoleLogger.Fatal(err.Error())
+					}
+					client.SendMultiPart(part.Parameters, all)
 				}
 			}
 		}
-		if err := client.SendMultiPartEnd(boundary); err != nil {
+		if err := client.SendMultiPartEnd(); err != nil {
 			ConsoleLogger.Fatalln(err)
 		}
 
@@ -96,9 +99,4 @@ func main() {
 
 	wg.Wait()
 	ConsoleLogger.Println("Request Complete")
-}
-
-func getCurrentTime() string {
-	t := time.Now()
-	return t.Format("2006-01-02 15:04:05.000") + "\t"
 }

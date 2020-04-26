@@ -1,7 +1,8 @@
-package handler
+package client
 
 import (
 	"bytes"
+	. "cloud-client-go/util"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ type HttpV2Client struct {
 	Timeout  time.Duration
 	TcpConn  net.Conn
 	revBuf   bytes.Buffer
+	boundary string
 }
 
 type optionFunc struct {
@@ -39,6 +41,7 @@ func NewHttpV2Client(Host string, Port int, opts ...HttpV2Option) *HttpV2Client 
 		Timeout:  10 * time.Second,
 		TcpConn:  nil,
 		revBuf:   bytes.Buffer{},
+		boundary: DefaultBoundary,
 	}
 	for _, opt := range opts {
 		opt.apply(client)
@@ -62,11 +65,20 @@ func WithPath(s string) HttpV2Option {
 	}
 }
 
+func WithBoundary(s string) HttpV2Option {
+	return &optionFunc{
+		f: func(client *HttpV2Client) {
+			client.boundary = s
+		},
+	}
+}
+
 func (fdo *optionFunc) apply(do *HttpV2Client) {
 	fdo.f(do)
 }
 
 func (c *HttpV2Client) Connect() error {
+	ConsoleLogger.Println(fmt.Sprintf("Connecting %s://%s:%d%s", c.Protocol, c.Host, c.Port, c.Path))
 	if strings.ToLower(c.Protocol) == "https" {
 		c.TcpConn, _ = tls.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port), &tls.Config{InsecureSkipVerify: true})
 	} else if strings.ToLower(c.Protocol) == "http" {
@@ -75,6 +87,7 @@ func (c *HttpV2Client) Connect() error {
 		return errors.New("unknown protocol")
 	}
 	c.TcpConn.SetDeadline(time.Now().Add(c.Timeout))
+	ConsoleLogger.Println(fmt.Sprintf("Connected %s://%s:%d%s", c.Protocol, c.Host, c.Port, c.Path))
 	return nil
 
 }
@@ -96,14 +109,14 @@ func (c *HttpV2Client) SendHeaders(headers []string) error {
 	return err
 }
 
-func (c *HttpV2Client) SendMultiPart(boundary string, parameters []string, body []byte) error {
+func (c *HttpV2Client) SendMultiPart(parameters []string, body []byte) error {
 	if err := c.checkConnection(); err != nil {
 		return err
 	}
 
 	var buf bytes.Buffer
-
-	if _, err := buf.Write([]byte(CRLF + fmt.Sprintf("--%s%s", boundary, CRLF))); err != nil {
+	defer buf.Reset()
+	if _, err := buf.Write([]byte(CRLF + fmt.Sprintf("--%s%s", c.boundary, CRLF))); err != nil {
 		return err
 	}
 	for _, v := range parameters {
@@ -121,11 +134,11 @@ func (c *HttpV2Client) SendMultiPart(boundary string, parameters []string, body 
 	return c.sendChunk(buf.Bytes())
 }
 
-func (c *HttpV2Client) SendMultiPartEnd(boundary string) error {
+func (c *HttpV2Client) SendMultiPartEnd() error {
 	if err := c.checkConnection(); err != nil {
 		return err
 	}
-	if err := c.sendChunk([]byte(fmt.Sprintf("%s--%s--%s", CRLF, boundary, CRLF))); err != nil {
+	if err := c.sendChunk([]byte(fmt.Sprintf("%s--%s--%s", CRLF, c.boundary, CRLF))); err != nil {
 		return err
 	}
 	return c.sendChunkEnd()

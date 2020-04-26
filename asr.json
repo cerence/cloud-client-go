@@ -58,7 +58,10 @@
         "Content-Disposition: form-data; name=ConcludingAudioParameter; paramName=AUDIO_INFO",
         "Content-Type: audio/x-wav;codec=pcm;bit=16;rate=16000"
       ],
-      "body": "news_eng_usa_100s.wav"
+      "body": "audio/news_eng_usa_100s.wav",
+      "stream_enable": true,
+      "stream_size": 640,
+      "stream_timing": "30ms"
     }
   ]
 }

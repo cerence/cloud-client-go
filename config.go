@@ -1,7 +1,7 @@
 package main
 
 import (
-	"cloud-client-go/util"
+	. "cloud-client-go/util"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,9 +19,12 @@ type Config struct {
 }
 
 type MultiPart struct {
-	Type       string      `json:"type"`
-	Parameters []string    `json:"parameters"`
-	Body       interface{} `json:"body"`
+	Type            string      `json:"type"`
+	Parameters      []string    `json:"parameters"`
+	Body            interface{} `json:"body"`
+	StreamingEnable bool        `json:"stream_enable"`
+	StreamSize      int         `json:"stream_size"`
+	StreamTiming    string      `json:"stream_timing"`
 }
 
 func (c *Config) GetBoundary() string {
@@ -34,21 +37,21 @@ func (c *Config) GetBoundary() string {
 			return c.boundary
 		}
 	}
-	c.Headers = append(c.Headers, "Content-Type: multipart/form-data; boundary=sk29ksksk82ksmsgdfg4rgs5llopsja82")
-	c.boundary = "sk29ksksk82ksmsgdfg4rgs5llopsja82"
+	c.Headers = append(c.Headers, fmt.Sprintf("Content-Type: multipart/form-data; boundary=%s", DefaultBoundary))
+	c.boundary = DefaultBoundary
 	return c.boundary
 }
 
 func ReadConfig(path string) *Config {
 	file, err := os.Open(path)
 	if err != nil {
-		util.ConsoleLogger.Fatalln(fmt.Sprintf("Can't open config file: %s", err.Error()))
+		ConsoleLogger.Fatalln(fmt.Sprintf("Can't open config file: %s", err.Error()))
 	}
 	defer file.Close()
 
 	var request *Config
 	if err = json.NewDecoder(file).Decode(&request); err != nil {
-		util.ConsoleLogger.Fatalln("Fail to decode the input file", err)
+		ConsoleLogger.Fatalln("Fail to decode the input file", err)
 	}
 
 	return request
