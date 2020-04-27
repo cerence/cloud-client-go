@@ -7,15 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const CRLF = "\r\n"
 
-type HttpV2Option interface {
-	apply(client *HttpV2Client)
-}
+const (
+	HEADERS = iota
+	CHUNK
+	END
+	NONE
+)
 
 type HttpV2Client struct {
 	Protocol string
@@ -24,8 +28,8 @@ type HttpV2Client struct {
 	Path     string
 	Timeout  time.Duration
 	TcpConn  net.Conn
-	revBuf   bytes.Buffer
 	boundary string
+	revBuf   bytes.Buffer
 }
 
 type optionFunc struct {
@@ -47,34 +51,6 @@ func NewHttpV2Client(Host string, Port int, opts ...HttpV2Option) *HttpV2Client 
 		opt.apply(client)
 	}
 	return client
-}
-
-func WithProtocol(s string) HttpV2Option {
-	return &optionFunc{
-		f: func(client *HttpV2Client) {
-			client.Protocol = s
-		},
-	}
-}
-
-func WithPath(s string) HttpV2Option {
-	return &optionFunc{
-		f: func(client *HttpV2Client) {
-			client.Path = s
-		},
-	}
-}
-
-func WithBoundary(s string) HttpV2Option {
-	return &optionFunc{
-		f: func(client *HttpV2Client) {
-			client.boundary = s
-		},
-	}
-}
-
-func (fdo *optionFunc) apply(do *HttpV2Client) {
-	fdo.f(do)
 }
 
 func (c *HttpV2Client) Connect() error {
@@ -178,4 +154,101 @@ func (c *HttpV2Client) Close() error {
 	}
 
 	return c.TcpConn.Close()
+}
+
+func (c *HttpV2Client) ReceiveChunk() (msgType int, data []byte, err error) {
+	isHeader := false
+	isFirstLine := true
+	var chunkSize int64 = 0
+	var totalReceiveSize int64 = 0
+	temp := bytes.Buffer{}
+	defer temp.Reset()
+	readFromConn(c)
+	for true {
+		line, err := c.revBuf.ReadBytes(0x0D)
+
+		if err != nil {
+			if err.Error() == "EOF" {
+				if isHeader {
+					return HEADERS, temp.Bytes(), nil
+				} else {
+					n := readFromConn(c)
+					if n == 0 {
+						break
+					}
+				}
+			} else {
+				return 0, nil, err
+			}
+		}
+
+		if isFirstLine {
+			isFirstLine = false
+			if strings.HasPrefix(string(line), "HTTP/1.1") {
+				isHeader = true
+			} else {
+				isHeader = false
+				line = removeCRLF(line)
+				chunkSize, _ = strconv.ParseInt(string(line), 16, 64)
+				if len(line) == 1 && chunkSize == 0 {
+					return END, nil, nil
+				}
+				continue
+			}
+		}
+
+		if isHeader {
+			if IsBlankLine(line) {
+				return HEADERS, temp.Bytes(), nil
+			} else {
+				temp.Write(line)
+			}
+		} else {
+			receiveSize := len(line)
+			if receiveSize == 0 {
+				n := readFromConn(c)
+				if n == 0 {
+					break
+				}
+			}
+			totalReceiveSize += int64(receiveSize)
+			temp.Write(line)
+			if totalReceiveSize >= chunkSize+2 {
+				return CHUNK, temp.Bytes(), nil
+			}
+		}
+	}
+
+	return NONE, nil, nil
+}
+
+func readFromConn(c *HttpV2Client) int {
+	buf := make([]byte, 10000)
+	n, _ := c.TcpConn.Read(buf)
+	c.revBuf.Write(buf[0:n])
+	return n
+}
+
+func removeCRLF(line []byte) []byte {
+	temp := bytes.Buffer{}
+	for _, v := range line {
+		if v != 0x0A && v != 0x0D {
+			temp.WriteByte(v)
+		}
+	}
+
+	return temp.Bytes()
+}
+
+func IsBlankLine(line []byte) bool {
+	if len(line) == 1 && (line[0] == 0x0A || line[0] == 0x0D) {
+		return true
+	}
+	if len(line) == 2 && line[0] == 0x0A && line[1] == 0x0D {
+		return true
+	}
+	if len(line) == 2 && line[0] == 0x0D && line[1] == 0x0A {
+		return true
+	}
+	return false
 }

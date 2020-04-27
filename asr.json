@@ -8,7 +8,7 @@
     "Connection: Keep-Alive",
     "Transfer-Encoding: chunked"
   ],
-  "multi-part": [
+  "multi-parts": [
     {
       "type": "json",
       "parameters": [
@@ -58,7 +58,7 @@
         "Content-Disposition: form-data; name=ConcludingAudioParameter; paramName=AUDIO_INFO",
         "Content-Type: audio/x-wav;codec=pcm;bit=16;rate=16000"
       ],
-      "body": "audio/news_eng_usa_100s.wav",
+      "body": "audio/score.wav",
       "stream_enable": true,
       "stream_size": 640,
       "stream_timing": "30ms"

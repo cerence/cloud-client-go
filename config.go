@@ -14,7 +14,7 @@ type Config struct {
 	Port       int         `json:"port"`
 	Path       string      `json:"path"`
 	Headers    []string    `json:"headers"`
-	MultiParts []MultiPart `json:"multi-part"`
+	MultiParts []MultiPart `json:"multi-parts"`
 	boundary   string
 }
 
