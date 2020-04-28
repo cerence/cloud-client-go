@@ -2,7 +2,8 @@ package main
 
 import (
 	"bufio"
-	"cloud-client-go/client"
+	. "cloud-client-go/config"
+	"cloud-client-go/http_v2_client"
 	. "cloud-client-go/util"
 	"encoding/json"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 
 const Sending = "Sending:"
 
-func Send(client *client.HttpV2Client, config *Config) {
+func Send(client *http_v2_client.HttpV2Client, config *Config) {
 	if err := client.SendHeaders(config.Headers); err != nil {
 		ConsoleLogger.Fatalln(err)
 	}
@@ -30,7 +31,7 @@ func Send(client *client.HttpV2Client, config *Config) {
 	}
 }
 
-func sendJsonMsg(client *client.HttpV2Client, part MultiPart) error {
+func sendJsonMsg(client *http_v2_client.HttpV2Client, part MultiPart) error {
 	bodyData, _ := json.Marshal(part.Body)
 	PrintPrettyJson(Sending, bodyData)
 	if err := client.SendMultiPart(part.Parameters, bodyData); err != nil {
@@ -40,7 +41,7 @@ func sendJsonMsg(client *client.HttpV2Client, part MultiPart) error {
 	return nil
 }
 
-func sendAudioMsg(client *client.HttpV2Client, part MultiPart) error {
+func sendAudioMsg(client *http_v2_client.HttpV2Client, part MultiPart) error {
 	audioFile, _ := os.Open(fmt.Sprintf("%s", part.Body))
 	if part.StreamingEnable {
 		sleep, err := time.ParseDuration(part.StreamTiming)
@@ -55,7 +56,7 @@ func sendAudioMsg(client *client.HttpV2Client, part MultiPart) error {
 				ConsoleLogger.Printf(er.Error())
 				break
 			}
-			ConsoleLogger.Println(fmt.Sprintf("%s %d bytes audio", Sending, n))
+			//ConsoleLogger.Println(fmt.Sprintf("%s %d bytes audio", Sending, n))
 			if err := client.SendMultiPart(part.Parameters, b[0:n]); err != nil {
 				ConsoleLogger.Fatalln(err)
 			}

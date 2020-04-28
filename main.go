@@ -1,9 +1,9 @@
 package main
 
 import (
-	. "cloud-client-go/client"
+	config2 "cloud-client-go/config"
+	. "cloud-client-go/http_v2_client"
 	. "cloud-client-go/util"
-	"strings"
 	"sync"
 )
 
@@ -12,7 +12,7 @@ var (
 )
 
 func main() {
-	config := ReadConfig("asr.json")
+	config := config2.ReadConfig("asr.json")
 	client := NewHttpV2Client(config.Host, config.Port, WithProtocol(config.Protocol), WithPath(config.Path), WithBoundary(config.GetBoundary()))
 	if client == nil {
 		ConsoleLogger.Fatalln("Can't new connection")
@@ -33,20 +33,21 @@ func main() {
 	//receive
 	go func() {
 		defer wg.Done()
-		for true {
-			buf := make([]byte, 10000)
-			n, err := client.TcpConn.Read(buf)
-			if err != nil {
-				ConsoleLogger.Printf(err.Error())
-			}
-			ConsoleLogger.Printf("Get %d bytes", n)
-
-			ss := strings.TrimSpace(string(buf[0:n]))
-			ConsoleLogger.Printf(ss)
-			if strings.HasSuffix(ss, "\r\n0") {
-				break
-			}
-		}
+		client.Receive()
+		//for true {
+		//	buf := make([]byte, 10000)
+		//	n, err := client.TcpConn.Read(buf)
+		//	if err != nil {
+		//		ConsoleLogger.Printf(err.Error())
+		//	}
+		//	ConsoleLogger.Printf("Get %d bytes", n)
+		//
+		//	ss := strings.TrimSpace(string(buf[0:n]))
+		//	ConsoleLogger.Printf(ss)
+		//	if strings.HasSuffix(ss, "\r\n0") {
+		//		break
+		//	}
+		//}
 	}()
 
 	wg.Wait()

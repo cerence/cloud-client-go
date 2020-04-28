@@ -1,10 +1,14 @@
-package client
+package http_v2_client
 
-type HttpV2Option interface {
+type Option interface {
 	apply(client *HttpV2Client)
 }
 
-func WithProtocol(s string) HttpV2Option {
+type optionFunc struct {
+	f func(client *HttpV2Client)
+}
+
+func WithProtocol(s string) Option {
 	return &optionFunc{
 		f: func(client *HttpV2Client) {
 			client.Protocol = s
@@ -12,7 +16,7 @@ func WithProtocol(s string) HttpV2Option {
 	}
 }
 
-func WithPath(s string) HttpV2Option {
+func WithPath(s string) Option {
 	return &optionFunc{
 		f: func(client *HttpV2Client) {
 			client.Path = s
@@ -20,7 +24,7 @@ func WithPath(s string) HttpV2Option {
 	}
 }
 
-func WithBoundary(s string) HttpV2Option {
+func WithBoundary(s string) Option {
 	return &optionFunc{
 		f: func(client *HttpV2Client) {
 			client.boundary = s

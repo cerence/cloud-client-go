@@ -1,4 +1,4 @@
-package client
+package http_v2_client
 
 import (
 	"bytes"
@@ -6,9 +6,11 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,31 +23,43 @@ const (
 	NONE
 )
 
+const (
+	Handing_Header = iota
+	Handling_Chunk
+	Handling_ChunkEnd
+)
+
 type HttpV2Client struct {
-	Protocol string
-	Host     string
-	Port     int
-	Path     string
-	Timeout  time.Duration
-	TcpConn  net.Conn
-	boundary string
-	revBuf   bytes.Buffer
+	Protocol  string
+	Host      string
+	Port      int
+	Path      string
+	Timeout   time.Duration
+	TcpConn   net.Conn
+	boundary  string
+	revResult result
 }
 
-type optionFunc struct {
-	f func(client *HttpV2Client)
+type result struct {
+	revBuf    bytes.Buffer
+	mutex     sync.Mutex
+	revStatus int
 }
 
-func NewHttpV2Client(Host string, Port int, opts ...HttpV2Option) *HttpV2Client {
+func NewHttpV2Client(Host string, Port int, opts ...Option) *HttpV2Client {
 	var client = &HttpV2Client{
 		Protocol: "https",
 		Host:     Host,
 		Port:     Port,
 		Path:     "/NmspServlet/",
-		Timeout:  10 * time.Second,
+		Timeout:  60 * time.Second,
 		TcpConn:  nil,
-		revBuf:   bytes.Buffer{},
 		boundary: DefaultBoundary,
+		revResult: result{
+			revBuf:    bytes.Buffer{},
+			mutex:     sync.Mutex{},
+			revStatus: 0,
+		},
 	}
 	for _, opt := range opts {
 		opt.apply(client)
@@ -156,6 +170,40 @@ func (c *HttpV2Client) Close() error {
 	return c.TcpConn.Close()
 }
 
+func (c *HttpV2Client) Receive() {
+	c.revResult.revStatus = Handing_Header
+	go func() {
+		for true {
+			if err := c.readFromTcpConn(); err != nil {
+				if err != io.EOF {
+					ConsoleLogger.Fatalln(err.Error())
+					return
+				}
+			}
+		}
+	}()
+
+	for true {
+		c.handleChunk()
+		time.Sleep(10 * time.Millisecond)
+	}
+
+}
+
+func (c *HttpV2Client) handleChunk() {
+	c.revResult.mutex.Lock()
+	defer c.revResult.mutex.Unlock()
+	//var chunkSize int64 = 0
+
+	line, err := c.revResult.revBuf.ReadBytes(0x0D)
+	if err != nil {
+		//ConsoleLogger.Println(err.Error())
+		return
+	}
+	ConsoleLogger.Println(string(line))
+
+}
+
 func (c *HttpV2Client) ReceiveChunk() (msgType int, data []byte, err error) {
 	isHeader := false
 	isFirstLine := true
@@ -165,7 +213,7 @@ func (c *HttpV2Client) ReceiveChunk() (msgType int, data []byte, err error) {
 	defer temp.Reset()
 	readFromConn(c)
 	for true {
-		line, err := c.revBuf.ReadBytes(0x0D)
+		line, err := c.revResult.revBuf.ReadBytes(0x0D)
 
 		if err != nil {
 			if err.Error() == "EOF" {
@@ -222,10 +270,22 @@ func (c *HttpV2Client) ReceiveChunk() (msgType int, data []byte, err error) {
 	return NONE, nil, nil
 }
 
+func (c *HttpV2Client) readFromTcpConn() error {
+	c.revResult.mutex.Lock()
+	defer c.revResult.mutex.Unlock()
+	temp := make([]byte, 1024)
+	n, err := c.TcpConn.Read(temp)
+	if err != nil {
+		return err
+	}
+	_, err = c.revResult.revBuf.Write(temp[0:n])
+	return err
+}
+
 func readFromConn(c *HttpV2Client) int {
 	buf := make([]byte, 10000)
 	n, _ := c.TcpConn.Read(buf)
-	c.revBuf.Write(buf[0:n])
+	c.revResult.revBuf.Write(buf[0:n])
 	return n
 }
 
