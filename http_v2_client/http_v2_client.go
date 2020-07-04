@@ -3,12 +3,12 @@ package http_v2_client
 import (
 	"bytes"
 	. "cloud-client-go/util"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +25,10 @@ const (
 
 const (
 	Handing_Header = iota
-	Handling_Chunk
+	Handling_Chunk_Len
+	Handling_Muti_Part_Header
+	Handling_Muti_Part_Body
+	Handing_Chunk_Body
 	Handling_ChunkEnd
 )
 
@@ -58,7 +61,7 @@ func NewHttpV2Client(Host string, Port int, opts ...Option) *HttpV2Client {
 		revResult: result{
 			revBuf:    bytes.Buffer{},
 			mutex:     sync.Mutex{},
-			revStatus: 0,
+			revStatus: Handing_Header,
 		},
 	}
 	for _, opt := range opts {
@@ -171,125 +174,111 @@ func (c *HttpV2Client) Close() error {
 }
 
 func (c *HttpV2Client) Receive() {
-	c.revResult.revStatus = Handing_Header
-	go func() {
-		for true {
-			if err := c.readFromTcpConn(); err != nil {
-				if err != io.EOF {
-					ConsoleLogger.Fatalln(err.Error())
-					return
-				}
-			}
-		}
-	}()
 
-	for true {
-		c.handleChunk()
-		time.Sleep(10 * time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	c.revResult.revStatus = Handing_Header
+	go c.ListenPort(ctx)
+
+	headers, _ := c.handleHttpHeaders()
+	ConsoleLogger.Println(headers)
+
+	c.handleChunk(ctx)
+	cancel()
+}
+
+func (c *HttpV2Client) handleHttpHeaders() ([]string, error) {
+	//c.revResult.mutex.Lock()
+	//defer c.revResult.mutex.Unlock()
+
+	var headers []string
+	for {
+		line, err := c.revResult.revBuf.ReadBytes(0x0D)
+		if err != nil {
+			if err == io.EOF {
+				continue
+			}
+			ConsoleLogger.Println(err.Error())
+			return nil, err
+		}
+		if !IsBlankLine(line) {
+			headers = append(headers, string(removeCRLF(line)))
+		} else {
+			c.revResult.revStatus = Handling_Chunk_Len
+			return headers, nil
+		}
 	}
 
 }
 
-func (c *HttpV2Client) handleChunk() {
+func (c *HttpV2Client) handleChunk(ctx context.Context) error {
 	c.revResult.mutex.Lock()
 	defer c.revResult.mutex.Unlock()
-	//var chunkSize int64 = 0
-
-	line, err := c.revResult.revBuf.ReadBytes(0x0D)
-	if err != nil {
-		//ConsoleLogger.Println(err.Error())
-		return
-	}
-	ConsoleLogger.Println(string(line))
-
-}
-
-func (c *HttpV2Client) ReceiveChunk() (msgType int, data []byte, err error) {
-	isHeader := false
-	isFirstLine := true
-	var chunkSize int64 = 0
-	var totalReceiveSize int64 = 0
-	temp := bytes.Buffer{}
-	defer temp.Reset()
-	readFromConn(c)
-	for true {
+	for {
 		line, err := c.revResult.revBuf.ReadBytes(0x0D)
 
 		if err != nil {
-			if err.Error() == "EOF" {
-				if isHeader {
-					return HEADERS, temp.Bytes(), nil
-				} else {
-					n := readFromConn(c)
-					if n == 0 {
-						break
-					}
-				}
-			} else {
-				return 0, nil, err
-			}
+			ConsoleLogger.Println(err.Error())
+			return err
 		}
-
-		if isFirstLine {
-			isFirstLine = false
-			if strings.HasPrefix(string(line), "HTTP/1.1") {
-				isHeader = true
-			} else {
-				isHeader = false
-				line = removeCRLF(line)
-				chunkSize, _ = strconv.ParseInt(string(line), 16, 64)
-				if len(line) == 1 && chunkSize == 0 {
-					return END, nil, nil
-				}
-				continue
-			}
+		lineWithCRLF := removeCRLF(line)
+		if lineWithCRLF != nil && string(lineWithCRLF) == "0" {
+			ConsoleLogger.Println("no more data")
+			break
 		}
-
-		if isHeader {
+		if c.revResult.revStatus == Handling_Chunk_Len {
 			if IsBlankLine(line) {
-				return HEADERS, temp.Bytes(), nil
+				c.revResult.revStatus = Handing_Chunk_Body
 			} else {
-				temp.Write(line)
+				ConsoleLogger.Println("Receive Chunk ", string(line))
 			}
-		} else {
-			receiveSize := len(line)
-			if receiveSize == 0 {
-				n := readFromConn(c)
-				if n == 0 {
-					break
+		} else if c.revResult.revStatus == Handing_Chunk_Body {
+
+		} else if c.revResult.revStatus == Handling_ChunkEnd {
+			return nil
+		}
+
+	}
+	return nil
+}
+
+func (c *HttpV2Client) ListenPort(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+			if err := c.readFromTcpConn(); err != nil {
+				if err != io.EOF {
+					ConsoleLogger.Fatalln(err.Error())
+					//return err
+				} else {
+					time.Sleep(20 * time.Millisecond)
 				}
-			}
-			totalReceiveSize += int64(receiveSize)
-			temp.Write(line)
-			if totalReceiveSize >= chunkSize+2 {
-				return CHUNK, temp.Bytes(), nil
 			}
 		}
 	}
-
-	return NONE, nil, nil
+	return nil
 }
 
 func (c *HttpV2Client) readFromTcpConn() error {
-	c.revResult.mutex.Lock()
-	defer c.revResult.mutex.Unlock()
 	temp := make([]byte, 1024)
 	n, err := c.TcpConn.Read(temp)
 	if err != nil {
 		return err
 	}
+	c.revResult.mutex.Lock()
+	defer c.revResult.mutex.Unlock()
 	_, err = c.revResult.revBuf.Write(temp[0:n])
+	if err != nil {
+		return err
+	}
 	return err
 }
 
-func readFromConn(c *HttpV2Client) int {
-	buf := make([]byte, 10000)
-	n, _ := c.TcpConn.Read(buf)
-	c.revResult.revBuf.Write(buf[0:n])
-	return n
-}
-
 func removeCRLF(line []byte) []byte {
+	if line == nil {
+		return nil
+	}
 	temp := bytes.Buffer{}
 	for _, v := range line {
 		if v != 0x0A && v != 0x0D {

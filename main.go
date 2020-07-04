@@ -25,29 +25,21 @@ func main() {
 
 	wg.Add(2)
 	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				ConsoleLogger.Println(err)
+			}
+		}()
 		defer wg.Done()
 		Send(client, config)
-
+		ConsoleLogger.Println("Send done")
 	}()
 
 	//receive
 	go func() {
 		defer wg.Done()
 		client.Receive()
-		//for true {
-		//	buf := make([]byte, 10000)
-		//	n, err := client.TcpConn.Read(buf)
-		//	if err != nil {
-		//		ConsoleLogger.Printf(err.Error())
-		//	}
-		//	ConsoleLogger.Printf("Get %d bytes", n)
-		//
-		//	ss := strings.TrimSpace(string(buf[0:n]))
-		//	ConsoleLogger.Printf(ss)
-		//	if strings.HasSuffix(ss, "\r\n0") {
-		//		break
-		//	}
-		//}
+		ConsoleLogger.Println("Receive done")
 	}()
 
 	wg.Wait()

@@ -7,6 +7,7 @@ import (
 	. "cloud-client-go/util"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"time"
@@ -26,6 +27,7 @@ func Send(client *http_v2_client.HttpV2Client, config *Config) {
 			sendAudioMsg(client, part)
 		}
 	}
+	ConsoleLogger.Println("Send Part End")
 	if err := client.SendMultiPartEnd(); err != nil {
 		ConsoleLogger.Fatalln(err)
 	}
@@ -48,20 +50,30 @@ func sendAudioMsg(client *http_v2_client.HttpV2Client, part MultiPart) error {
 		if err != nil {
 			ConsoleLogger.Fatal(fmt.Sprintf("invalid stream_timing:%s", part.StreamTiming))
 		}
-		r := bufio.NewReader(audioFile)
-		b := make([]byte, part.StreamSize)
+		reader := bufio.NewReader(audioFile)
+		buffer := make([]byte, part.StreamSize)
 		for {
-			n, er := r.Read(b)
-			if er != nil {
-				ConsoleLogger.Printf(er.Error())
+			n, er := reader.Read(buffer)
+			if n == 0 {
 				break
 			}
+			if er != nil {
+				if er == io.EOF {
+					ConsoleLogger.Printf(er.Error())
+					break
+				} else {
+					ConsoleLogger.Printf(er.Error())
+					return er
+				}
+			}
+
 			//ConsoleLogger.Println(fmt.Sprintf("%s %d bytes audio", Sending, n))
-			if err := client.SendMultiPart(part.Parameters, b[0:n]); err != nil {
+			if err := client.SendMultiPart(part.Parameters, buffer[0:n]); err != nil {
 				ConsoleLogger.Fatalln(err)
 			}
 			time.Sleep(sleep)
 		}
+
 	} else {
 		all, err := ioutil.ReadAll(audioFile)
 		if err != nil {
