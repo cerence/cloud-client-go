@@ -39,6 +39,20 @@ func main() {
 	go func() {
 		defer wg.Done()
 		client.Receive()
+		//for true {
+		//	buf := make([]byte, 10000)
+		//	n, err := client.TcpConn.Read(buf)
+		//	if err != nil {
+		//		ConsoleLogger.Printf(err.Error())
+		//	}
+		//
+		//
+		//	ss := strings.TrimSpace(string(buf[0:n]))
+		//	ConsoleLogger.Printf(ss)
+		//	if strings.HasSuffix(ss, "\r\n0") {
+		//		break
+		//	}
+		//}
 		ConsoleLogger.Println("Receive done")
 	}()
 

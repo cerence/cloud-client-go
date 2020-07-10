@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
 const CRLF = "\r\n"
+const CR = '\r'
+const LF = '\n'
 
 const (
 	HEADERS = iota
@@ -26,10 +28,8 @@ const (
 const (
 	Handing_Header = iota
 	Handling_Chunk_Len
-	Handling_Muti_Part_Header
-	Handling_Muti_Part_Body
+	Handing_Boundary_Parameters
 	Handing_Chunk_Body
-	Handling_ChunkEnd
 )
 
 type HttpV2Client struct {
@@ -44,9 +44,35 @@ type HttpV2Client struct {
 }
 
 type result struct {
-	revBuf    bytes.Buffer
-	mutex     sync.Mutex
-	revStatus int
+	revBuf        bytes.Buffer
+	revStatus     int
+	receiveEnable chan int
+	handleEnable  chan int
+
+	headers       bytes.Buffer
+	handlingChunk *Chunk
+	handledChunk  []*Chunk
+
+	getCR      bool
+	getLF      bool
+	doubleCRLF bool
+}
+
+type Chunk struct {
+	LenByte               bytes.Buffer
+	Len                   int64
+	BoundaryAndParameters bytes.Buffer
+	Body                  bytes.Buffer
+	ReceivedLen           int64
+}
+
+func NewChunk() *Chunk {
+	return &Chunk{
+		LenByte:               bytes.Buffer{},
+		BoundaryAndParameters: bytes.Buffer{},
+		Body:                  bytes.Buffer{},
+		ReceivedLen:           0,
+	}
 }
 
 func NewHttpV2Client(Host string, Port int, opts ...Option) *HttpV2Client {
@@ -59,9 +85,12 @@ func NewHttpV2Client(Host string, Port int, opts ...Option) *HttpV2Client {
 		TcpConn:  nil,
 		boundary: DefaultBoundary,
 		revResult: result{
-			revBuf:    bytes.Buffer{},
-			mutex:     sync.Mutex{},
-			revStatus: Handing_Header,
+			revBuf:        bytes.Buffer{},
+			receiveEnable: make(chan int, 1),
+			handleEnable:  make(chan int, 1),
+			revStatus:     Handing_Header,
+			headers:       bytes.Buffer{},
+			handledChunk:  []*Chunk{},
 		},
 	}
 	for _, opt := range opts {
@@ -177,84 +206,62 @@ func (c *HttpV2Client) Receive() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.revResult.revStatus = Handing_Header
-	go c.ListenPort(ctx)
+	c.revResult.receiveEnable <- 1
 
-	headers, _ := c.handleHttpHeaders()
-	ConsoleLogger.Println(headers)
-
-	c.handleChunk(ctx)
+	go c.listenPort(ctx)
+	c.HandleResponse(ctx)
 	cancel()
+
 }
 
-func (c *HttpV2Client) handleHttpHeaders() ([]string, error) {
-	//c.revResult.mutex.Lock()
-	//defer c.revResult.mutex.Unlock()
+func (c *HttpV2Client) HandleResponse(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		return
 
-	var headers []string
-	for {
-		line, err := c.revResult.revBuf.ReadBytes(0x0D)
-		if err != nil {
-			if err == io.EOF {
-				continue
+	default:
+		for {
+			<-c.revResult.handleEnable
+
+			c.revResult.resetCRLF()
+			data := c.revResult.revBuf.Next(c.revResult.revBuf.Len())
+
+			for i := 0; i < len(data); i++ {
+				b := data[i]
+				c.revResult.handleCRLF(b)
+
+				switch c.revResult.revStatus {
+				case Handing_Header:
+					c.revResult.handleHeader(b)
+				case Handling_Chunk_Len:
+					if !c.revResult.handleChunkLen(b) {
+						return
+					}
+				case Handing_Boundary_Parameters:
+					c.revResult.handleBoundaryParameters(b)
+				case Handing_Chunk_Body:
+					c.revResult.handleChunkBody(b)
+				}
 			}
-			ConsoleLogger.Println(err.Error())
-			return nil, err
-		}
-		if !IsBlankLine(line) {
-			headers = append(headers, string(removeCRLF(line)))
-		} else {
-			c.revResult.revStatus = Handling_Chunk_Len
-			return headers, nil
+			c.revResult.receiveEnable <- 1
 		}
 	}
-
 }
 
-func (c *HttpV2Client) handleChunk(ctx context.Context) error {
-	c.revResult.mutex.Lock()
-	defer c.revResult.mutex.Unlock()
-	for {
-		line, err := c.revResult.revBuf.ReadBytes(0x0D)
-
-		if err != nil {
-			ConsoleLogger.Println(err.Error())
-			return err
-		}
-		lineWithCRLF := removeCRLF(line)
-		if lineWithCRLF != nil && string(lineWithCRLF) == "0" {
-			ConsoleLogger.Println("no more data")
-			break
-		}
-		if c.revResult.revStatus == Handling_Chunk_Len {
-			if IsBlankLine(line) {
-				c.revResult.revStatus = Handing_Chunk_Body
-			} else {
-				ConsoleLogger.Println("Receive Chunk ", string(line))
-			}
-		} else if c.revResult.revStatus == Handing_Chunk_Body {
-
-		} else if c.revResult.revStatus == Handling_ChunkEnd {
-			return nil
-		}
-
-	}
-	return nil
-}
-
-func (c *HttpV2Client) ListenPort(ctx context.Context) error {
+func (c *HttpV2Client) listenPort(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			fmt.Println("exiting listening")
 			break
-		default:
+		case <-c.revResult.receiveEnable:
 			if err := c.readFromTcpConn(); err != nil {
 				if err != io.EOF {
 					ConsoleLogger.Fatalln(err.Error())
-					//return err
-				} else {
-					time.Sleep(20 * time.Millisecond)
 				}
 			}
+		default:
+			time.Sleep(5 * time.Millisecond)
 		}
 	}
 	return nil
@@ -266,38 +273,97 @@ func (c *HttpV2Client) readFromTcpConn() error {
 	if err != nil {
 		return err
 	}
-	c.revResult.mutex.Lock()
-	defer c.revResult.mutex.Unlock()
-	_, err = c.revResult.revBuf.Write(temp[0:n])
-	if err != nil {
-		return err
+	if n > 0 {
+		fmt.Println(fmt.Sprintf("Get %d bytes", n))
+		_, err = c.revResult.revBuf.Write(temp[0:n])
+		if err != nil {
+			return err
+		}
+		c.revResult.handleEnable <- 1
 	}
 	return err
 }
 
-func removeCRLF(line []byte) []byte {
-	if line == nil {
-		return nil
+func (r *result) shouldHandleNext() bool {
+	if r.handlingChunk.ReceivedLen >= r.handlingChunk.Len {
+		r.handledChunk = append(r.handledChunk, r.handlingChunk)
+		fmt.Println(r.handlingChunk.Body.String())
+		r.handlingChunk = nil
+		r.revStatus = Handling_Chunk_Len
+		return true
+	} else {
+		return false
 	}
-	temp := bytes.Buffer{}
-	for _, v := range line {
-		if v != 0x0A && v != 0x0D {
-			temp.WriteByte(v)
-		}
-	}
-
-	return temp.Bytes()
 }
 
-func IsBlankLine(line []byte) bool {
-	if len(line) == 1 && (line[0] == 0x0A || line[0] == 0x0D) {
+func (r *result) resetCRLF() {
+	r.getCR = false
+	r.getLF = false
+	r.doubleCRLF = false
+}
+
+func (r *result) handleCRLF(b byte) {
+	if b == CR {
+		r.getCR = true
+	} else if b == LF {
+		if r.getCR && r.getLF {
+			r.doubleCRLF = true
+		} else {
+			r.getLF = true
+		}
+	} else {
+		r.getLF = false
+		r.getCR = false
+		r.doubleCRLF = false
+	}
+}
+
+func (r *result) handleHeader(b byte) {
+	if r.doubleCRLF {
+		r.revStatus = Handling_Chunk_Len
+
+	} else {
+		r.headers.Write([]byte{b})
+
+	}
+}
+
+func (r *result) handleChunkLen(b byte) bool {
+	if r.handlingChunk == nil {
+		r.handlingChunk = NewChunk()
+	}
+	if !r.getLF && !r.getCR {
+		r.handlingChunk.LenByte.Write([]byte{b})
+	} else {
+		if r.handlingChunk.LenByte.Len() == 0 {
+			return true
+		}
+		r.handlingChunk.Len, _ = strconv.ParseInt(r.handlingChunk.LenByte.String(), 16, 64)
+		r.revStatus = Handing_Boundary_Parameters
+		if r.handlingChunk.Len == 0 {
+			r.handledChunk = append(r.handledChunk, r.handlingChunk)
+			r.handlingChunk = nil
+			return false
+		}
 		return true
 	}
-	if len(line) == 2 && line[0] == 0x0A && line[1] == 0x0D {
-		return true
+	return true
+}
+
+func (r *result) handleBoundaryParameters(b byte) {
+	if b == '-' || r.handlingChunk.BoundaryAndParameters.Len() != 0 {
+		r.handlingChunk.ReceivedLen++
+		r.handlingChunk.BoundaryAndParameters.Write([]byte{b})
 	}
-	if len(line) == 2 && line[0] == 0x0D && line[1] == 0x0A {
-		return true
+	if r.doubleCRLF && r.handlingChunk.BoundaryAndParameters.Len() != 0 {
+		r.revStatus = Handing_Chunk_Body
 	}
-	return false
+	r.shouldHandleNext()
+}
+
+func (r *result) handleChunkBody(b byte) {
+	r.handlingChunk.ReceivedLen++
+	r.handlingChunk.Body.Write([]byte{b})
+	r.shouldHandleNext()
+
 }
