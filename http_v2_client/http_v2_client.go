@@ -19,13 +19,6 @@ const CR = '\r'
 const LF = '\n'
 
 const (
-	HEADERS = iota
-	CHUNK
-	END
-	NONE
-)
-
-const (
 	Handing_Header = iota
 	Handling_Chunk_Len
 	Handing_Boundary_Parameters
@@ -51,7 +44,7 @@ type result struct {
 
 	headers       bytes.Buffer
 	handlingChunk *Chunk
-	handledChunk  []*Chunk
+	receivedChunk chan Chunk
 
 	getCR      bool
 	getLF      bool
@@ -90,7 +83,7 @@ func NewHttpV2Client(Host string, Port int, opts ...Option) *HttpV2Client {
 			handleEnable:  make(chan int, 1),
 			revStatus:     Handing_Header,
 			headers:       bytes.Buffer{},
-			handledChunk:  []*Chunk{},
+			receivedChunk: make(chan Chunk, 10),
 		},
 	}
 	for _, opt := range opts {
@@ -209,12 +202,19 @@ func (c *HttpV2Client) Receive() {
 	c.revResult.receiveEnable <- 1
 
 	go c.listenPort(ctx)
-	c.HandleResponse(ctx)
+	c.handleResponse(ctx)
 	cancel()
+	close(c.revResult.receivedChunk)
+	close(c.revResult.handleEnable)
+	close(c.revResult.receiveEnable)
 
 }
 
-func (c *HttpV2Client) HandleResponse(ctx context.Context) {
+func (c *HttpV2Client) GetReceivedChunkChannel() chan Chunk {
+	return c.revResult.receivedChunk
+}
+
+func (c *HttpV2Client) handleResponse(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 		return
@@ -252,7 +252,7 @@ func (c *HttpV2Client) listenPort(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("exiting listening")
+			ConsoleLogger.Println("Exiting listening")
 			break
 		case <-c.revResult.receiveEnable:
 			if err := c.readFromTcpConn(); err != nil {
@@ -274,7 +274,6 @@ func (c *HttpV2Client) readFromTcpConn() error {
 		return err
 	}
 	if n > 0 {
-		fmt.Println(fmt.Sprintf("Get %d bytes", n))
 		_, err = c.revResult.revBuf.Write(temp[0:n])
 		if err != nil {
 			return err
@@ -286,8 +285,6 @@ func (c *HttpV2Client) readFromTcpConn() error {
 
 func (r *result) shouldHandleNext() bool {
 	if r.handlingChunk.ReceivedLen >= r.handlingChunk.Len {
-		r.handledChunk = append(r.handledChunk, r.handlingChunk)
-		fmt.Println(r.handlingChunk.Body.String())
 		r.handlingChunk = nil
 		r.revStatus = Handling_Chunk_Len
 		return true
@@ -341,7 +338,7 @@ func (r *result) handleChunkLen(b byte) bool {
 		r.handlingChunk.Len, _ = strconv.ParseInt(r.handlingChunk.LenByte.String(), 16, 64)
 		r.revStatus = Handing_Boundary_Parameters
 		if r.handlingChunk.Len == 0 {
-			r.handledChunk = append(r.handledChunk, r.handlingChunk)
+			r.receivedChunk <- *r.handlingChunk
 			r.handlingChunk = nil
 			return false
 		}
