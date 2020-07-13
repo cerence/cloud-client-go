@@ -1,18 +1,18 @@
 {
   "protocol": "http",
-  "host": "10.71.21.81",
-  "port": 28933,
+  "host": "10.179.186.12",
+  "port": 22952,
   "path": "/NmspServlet/",
   "headers" : [
-    "Content-Type: multipart/form-data; boundary=sk29ksksk82ksmsgdfg4rgs5llopsja82",
-    "Connection: Keep-Alive"
+    "Connection: Keep-Alive",
+    "Content-Type: multipart/form-data; boundary=fb597f6273614b5aab97d8dfff869806"
   ],
   "multi-parts": [
     {
       "type": "json",
       "parameters": [
         "Content-Disposition: form-data; name=RequestData",
-        "Content-Type: application/json; charset=gb18030"
+        "Content-Type: application/json; charset=utf-8"
       ],
       "body": {
         "cmdName": "NVC_TTS_CMD",
@@ -20,30 +20,28 @@
         "appKey": "",
         "uId": "uid1",
         "outCodec": "OPUS_16K",
+        "supportedTtsFeature":{
+          "tts_multi_logic_stream_flag": "true",
+          "tts_early_emission_flag": "true"
+        },
         "cmdDict": {
-          "application": "BANMA",
-          "dictation_language": "eng-GBR",
-          "dictation_type": "ccpoi_assistant",
-          "locale": "",
-          "location": "<+45.5086699, -73.5539925> +/- 99.00m",
-          "tts_log_level": "FULL",
-          "tts_log_event": "true",
-          "tts_language":"cmn-cn",
-          "tts_voice":"Li-li" ,
+          "tts_language": "cmn-CHN",
+          "tts_voice": "Lilian-ML",
           "tts_text_genre": "news",
-          "tts_enable_audible_segments":"true"
+          "tts_log_level": "FULL",
+          "tts_enable_audible_segments": "true"
         }
       }
     },
     {
       "type": "json",
       "parameters": [
-        "Content-Disposition: form-data; name=TtsParameter; paramName=TEXT_TO_READ",
-        "Content-Type: audio/x-wav;codec=pcm;bit=16;rate=16000"
+        "Content-Disposition: form-data; name=\"TtsParameter\"; paramName=\"TEXT_TO_READ\"",
+        "Content-Type: application/json; charset=utf-8"
       ],
       "body": {
         "tts_type": "text",
-        "tts_input": "Hello world"
+        "tts_input": "今天的天气真好"
       }
     }
   ]
