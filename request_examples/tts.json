@@ -5,7 +5,9 @@
   "path": "/NmspServlet/",
   "headers" : [
     "Connection: Keep-Alive",
-    "Content-Type: multipart/form-data; boundary=fb597f6273614b5aab97d8dfff869806"
+    "Accept: audio/ogg; codecs=opus",
+    "Content-Type: multipart/form-data; boundary=fb597f6273614b5aab97d8dfff869806",
+    "Transfer-Encoding: chunked"
   ],
   "multi-parts": [
     {
@@ -20,15 +22,10 @@
         "appKey": "",
         "uId": "uid1",
         "outCodec": "OPUS_16K",
-        "supportedTtsFeature":{
-          "tts_multi_logic_stream_flag": "true",
-          "tts_early_emission_flag": "true"
-        },
         "cmdDict": {
           "tts_language": "cmn-CHN",
           "tts_voice": "Lilian-ML",
           "tts_text_genre": "news",
-          "tts_log_level": "FULL",
           "tts_enable_audible_segments": "true"
         }
       }
@@ -41,7 +38,7 @@
       ],
       "body": {
         "tts_type": "text",
-        "tts_input": "今天的天气真好"
+        "tts_input": "hello"
       }
     }
   ]

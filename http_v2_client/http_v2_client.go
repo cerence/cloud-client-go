@@ -199,7 +199,7 @@ func (c *HttpV2Client) Close() error {
 
 func (c *HttpV2Client) Receive() {
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithCancel(context.Background())
 	c.revResult.revStatus = handingHeader
 	c.revResult.receiveEnable <- true
 	go c.listenPort(ctx)

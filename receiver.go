@@ -15,30 +15,13 @@ const Receiving = "Receiving:"
 func Receive(client *http_v2_client.HttpV2Client, output string, audio string) {
 	go client.Receive()
 
-	var outputFile *os.File
-	var err error
-	writeOutput := false
-	if output != "" {
-		outputFile, err = os.Create(output)
-		if err != nil {
-			ConsoleLogger.Println(err)
-		} else {
-			writeOutput = true
-			defer outputFile.Close()
-		}
+	outputFile, writeOutput := createFile(output)
+	if writeOutput {
+		defer outputFile.Close()
 	}
-
-	var audioFile *os.File
-	var err1 error
-	writeAudio := false
-	if audio != "" {
-		audioFile, err1 = os.Create(output)
-		if err1 != nil {
-			ConsoleLogger.Println(err1)
-		} else {
-			writeAudio = true
-			defer audioFile.Close()
-		}
+	audioFile, writeAudio := createFile(audio)
+	if writeOutput {
+		defer audioFile.Close()
 	}
 
 	for header := range client.GetReceivedHttpHeaderChannel() {
@@ -69,16 +52,20 @@ func Receive(client *http_v2_client.HttpV2Client, output string, audio string) {
 
 		if isAudio {
 			ConsoleLogger.Println(fmt.Sprintf("%s %d audio bytes", Receiving, chunk.Body.Len()))
+			if writeOutput {
+				outputFile.WriteString(fmt.Sprintf("%s %d audio bytes", Receiving, chunk.Body.Len()))
+			}
 			if writeAudio {
 				audioFile.Write(chunk.Body.Bytes())
 			}
 		} else {
 			PrintPrettyJson(Receiving, chunk.Body.Bytes())
+			if writeOutput {
+				json := PrintPrettyJson(Receiving, chunk.Body.Bytes())
+				outputFile.WriteString(json + CRLF)
+			}
 		}
-		if writeOutput {
-			json := PrintPrettyJson(Receiving, chunk.Body.Bytes())
-			outputFile.WriteString(json + CRLF)
-		}
+
 	}
 }
 
@@ -95,4 +82,20 @@ func handleBoundaryAndParameters(bytes bytes.Buffer) ([]string, bool) {
 		}
 	}
 	return parameters, isAudioPart
+}
+
+func createFile(fileName string) (*os.File, bool) {
+	var file *os.File
+	var err error
+	enable := false
+	if fileName != "" {
+		file, err = os.Create(fileName)
+		if err != nil {
+			ConsoleLogger.Println(err)
+		} else {
+			enable = true
+		}
+	}
+
+	return file, enable
 }
