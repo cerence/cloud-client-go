@@ -1,3 +1,5 @@
+![Build status](https://travis-ci.com/cerence/cloud-client-go.svg?branch=master)
+
 # Overview
 cloud-client-go is CLI tool to send out the Cerence cloud requests, such as ASR, TTS requests.
 You can get the help context with "-h" flag.
