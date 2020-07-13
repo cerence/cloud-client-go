@@ -207,8 +207,8 @@ func (c *HttpV2Client) Receive() {
 
 	defer cancel()
 	close(c.revResult.receivedChunk)
-	close(c.revResult.handleEnable)
-	close(c.revResult.receiveEnable)
+	//close(c.revResult.handleEnable)
+	//close(c.revResult.receiveEnable)
 
 }
 

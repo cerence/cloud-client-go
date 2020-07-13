@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"cloud-client-go/http_v2_client"
+	. "cloud-client-go/http_v2_client"
 	. "cloud-client-go/util"
 	"fmt"
 	"os"
@@ -10,7 +11,6 @@ import (
 )
 
 const Receiving = "Receiving:"
-const CRLF = "\r\n"
 
 func Receive(client *http_v2_client.HttpV2Client, output string, audio string) {
 	go client.Receive()
