@@ -1,0 +1,14 @@
+# .goreleaser.yml
+
+builds:
+  # You can have multiple builds defined as a yaml list
+  -
+    id: "cloud-client-go"
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - windows
+      - linux
+    goarch:
+      - amd64

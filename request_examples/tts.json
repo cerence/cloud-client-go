@@ -1,0 +1,50 @@
+{
+  "protocol": "http",
+  "host": "10.71.21.81",
+  "port": 28933,
+  "path": "/NmspServlet/",
+  "headers" : [
+    "Content-Type: multipart/form-data; boundary=sk29ksksk82ksmsgdfg4rgs5llopsja82",
+    "Connection: Keep-Alive"
+  ],
+  "multi-parts": [
+    {
+      "type": "json",
+      "parameters": [
+        "Content-Disposition: form-data; name=RequestData",
+        "Content-Type: application/json; charset=gb18030"
+      ],
+      "body": {
+        "cmdName": "NVC_TTS_CMD",
+        "appId": "",
+        "appKey": "",
+        "uId": "uid1",
+        "outCodec": "OPUS_16K",
+        "cmdDict": {
+          "application": "BANMA",
+          "dictation_language": "eng-GBR",
+          "dictation_type": "ccpoi_assistant",
+          "locale": "",
+          "location": "<+45.5086699, -73.5539925> +/- 99.00m",
+          "tts_log_level": "FULL",
+          "tts_log_event": "true",
+          "tts_language":"cmn-cn",
+          "tts_voice":"Li-li" ,
+          "tts_text_genre": "news",
+          "tts_enable_audible_segments":"true"
+        }
+      }
+    },
+    {
+      "type": "json",
+      "parameters": [
+        "Content-Disposition: form-data; name=TtsParameter; paramName=TEXT_TO_READ",
+        "Content-Type: audio/x-wav;codec=pcm;bit=16;rate=16000"
+      ],
+      "body": {
+        "tts_type": "text",
+        "tts_input": "Hello world"
+      }
+    }
+  ]
+}

@@ -19,10 +19,10 @@ const CR = '\r'
 const LF = '\n'
 
 const (
-	Handing_Header = iota
-	Handling_Chunk_Len
-	Handing_Boundary_Parameters
-	Handing_Chunk_Body
+	handingHeader = iota
+	handlingChunkLen
+	handingBoundaryParameters
+	handingChunkBody
 )
 
 type HttpV2Client struct {
@@ -39,12 +39,13 @@ type HttpV2Client struct {
 type result struct {
 	revBuf        bytes.Buffer
 	revStatus     int
-	receiveEnable chan int
-	handleEnable  chan int
+	receiveEnable chan bool
+	handleEnable  chan bool
 
-	headers       bytes.Buffer
-	handlingChunk *Chunk
-	receivedChunk chan Chunk
+	headers        bytes.Buffer
+	handlingChunk  *Chunk
+	receivedChunk  chan Chunk
+	receivedHeader chan string
 
 	getCR      bool
 	getLF      bool
@@ -78,12 +79,13 @@ func NewHttpV2Client(Host string, Port int, opts ...Option) *HttpV2Client {
 		TcpConn:  nil,
 		boundary: DefaultBoundary,
 		revResult: result{
-			revBuf:        bytes.Buffer{},
-			receiveEnable: make(chan int, 1),
-			handleEnable:  make(chan int, 1),
-			revStatus:     Handing_Header,
-			headers:       bytes.Buffer{},
-			receivedChunk: make(chan Chunk, 10),
+			revBuf:         bytes.Buffer{},
+			receiveEnable:  make(chan bool, 1),
+			handleEnable:   make(chan bool, 1),
+			revStatus:      handingHeader,
+			headers:        bytes.Buffer{},
+			receivedChunk:  make(chan Chunk, 30),
+			receivedHeader: make(chan string, 20),
 		},
 	}
 	for _, opt := range opts {
@@ -197,13 +199,13 @@ func (c *HttpV2Client) Close() error {
 
 func (c *HttpV2Client) Receive() {
 
-	ctx, cancel := context.WithCancel(context.Background())
-	c.revResult.revStatus = Handing_Header
-	c.revResult.receiveEnable <- 1
-
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	c.revResult.revStatus = handingHeader
+	c.revResult.receiveEnable <- true
 	go c.listenPort(ctx)
-	c.handleResponse(ctx)
-	cancel()
+	c.handleResponse()
+
+	defer cancel()
 	close(c.revResult.receivedChunk)
 	close(c.revResult.handleEnable)
 	close(c.revResult.receiveEnable)
@@ -214,38 +216,43 @@ func (c *HttpV2Client) GetReceivedChunkChannel() chan Chunk {
 	return c.revResult.receivedChunk
 }
 
-func (c *HttpV2Client) handleResponse(ctx context.Context) {
-	select {
-	case <-ctx.Done():
-		return
+func (c *HttpV2Client) GetReceivedHttpHeaderChannel() chan string {
+	return c.revResult.receivedHeader
+}
 
-	default:
-		for {
-			<-c.revResult.handleEnable
+func (c *HttpV2Client) handleResponse() {
 
-			c.revResult.resetCRLF()
-			data := c.revResult.revBuf.Next(c.revResult.revBuf.Len())
-
-			for i := 0; i < len(data); i++ {
-				b := data[i]
-				c.revResult.handleCRLF(b)
-
-				switch c.revResult.revStatus {
-				case Handing_Header:
-					c.revResult.handleHeader(b)
-				case Handling_Chunk_Len:
-					if !c.revResult.handleChunkLen(b) {
-						return
-					}
-				case Handing_Boundary_Parameters:
-					c.revResult.handleBoundaryParameters(b)
-				case Handing_Chunk_Body:
-					c.revResult.handleChunkBody(b)
-				}
-			}
-			c.revResult.receiveEnable <- 1
+	for {
+		if !<-c.revResult.handleEnable {
+			close(c.revResult.receivedHeader)
+			return
 		}
+
+		c.revResult.resetCRLF()
+		data := c.revResult.revBuf.Next(c.revResult.revBuf.Len())
+
+		for i := 0; i < len(data); i++ {
+			b := data[i]
+			c.revResult.handleCRLF(b)
+
+			switch c.revResult.revStatus {
+			case handingHeader:
+				if !c.revResult.handleHeader(b) {
+					return
+				}
+			case handlingChunkLen:
+				if !c.revResult.handleChunkLen(b) {
+					return
+				}
+			case handingBoundaryParameters:
+				c.revResult.handleBoundaryParameters(b)
+			case handingChunkBody:
+				c.revResult.handleChunkBody(b)
+			}
+		}
+		c.revResult.receiveEnable <- true
 	}
+
 }
 
 func (c *HttpV2Client) listenPort(ctx context.Context) error {
@@ -253,7 +260,8 @@ func (c *HttpV2Client) listenPort(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			ConsoleLogger.Println("Exiting listening")
-			break
+			c.revResult.handleEnable <- false
+			return ctx.Err()
 		case <-c.revResult.receiveEnable:
 			if err := c.readFromTcpConn(); err != nil {
 				if err != io.EOF {
@@ -278,15 +286,16 @@ func (c *HttpV2Client) readFromTcpConn() error {
 		if err != nil {
 			return err
 		}
-		c.revResult.handleEnable <- 1
+		c.revResult.handleEnable <- true
 	}
 	return err
 }
 
 func (r *result) shouldHandleNext() bool {
 	if r.handlingChunk.ReceivedLen >= r.handlingChunk.Len {
+		r.receivedChunk <- *r.handlingChunk
 		r.handlingChunk = nil
-		r.revStatus = Handling_Chunk_Len
+		r.revStatus = handlingChunkLen
 		return true
 	} else {
 		return false
@@ -315,14 +324,27 @@ func (r *result) handleCRLF(b byte) {
 	}
 }
 
-func (r *result) handleHeader(b byte) {
+func (r *result) handleHeader(b byte) bool {
 	if r.doubleCRLF {
-		r.revStatus = Handling_Chunk_Len
+		isHttp200 := false
+		headers := strings.Split(r.headers.String(), CRLF)
+		for n := range headers {
+			if strings.Trim(headers[n], "\r") != "" {
+				if strings.Contains(headers[n], "HTTP/1.1 200") {
+					isHttp200 = true
+				}
+				r.receivedHeader <- headers[n]
+			}
+		}
+		close(r.receivedHeader)
+		r.revStatus = handlingChunkLen
+		return isHttp200
 
 	} else {
 		r.headers.Write([]byte{b})
 
 	}
+	return true
 }
 
 func (r *result) handleChunkLen(b byte) bool {
@@ -336,10 +358,8 @@ func (r *result) handleChunkLen(b byte) bool {
 			return true
 		}
 		r.handlingChunk.Len, _ = strconv.ParseInt(r.handlingChunk.LenByte.String(), 16, 64)
-		r.revStatus = Handing_Boundary_Parameters
+		r.revStatus = handingBoundaryParameters
 		if r.handlingChunk.Len == 0 {
-			r.receivedChunk <- *r.handlingChunk
-			r.handlingChunk = nil
 			return false
 		}
 		return true
@@ -353,7 +373,7 @@ func (r *result) handleBoundaryParameters(b byte) {
 		r.handlingChunk.BoundaryAndParameters.Write([]byte{b})
 	}
 	if r.doubleCRLF && r.handlingChunk.BoundaryAndParameters.Len() != 0 {
-		r.revStatus = Handing_Chunk_Body
+		r.revStatus = handingChunkBody
 	}
 	r.shouldHandleNext()
 }

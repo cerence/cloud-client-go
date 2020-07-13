@@ -21,13 +21,14 @@ func init() {
 		log.Ldate|log.Lmicroseconds|log.Lshortfile)
 }
 
-func PrintPrettyJson(prefix string, data []byte) {
+func PrintPrettyJson(prefix string, data []byte) string {
 	var prettyJSON bytes.Buffer
 	error := json.Indent(&prettyJSON, data, "", "\t")
 	if error != nil {
 		ConsoleLogger.Println("JSON parse error: ", error)
-		return
+		return ""
 	}
 	ConsoleLogger.Println(fmt.Sprintf("%s%s", prefix, string(prettyJSON.Bytes())))
+	return string(prettyJSON.Bytes())
 
 }
