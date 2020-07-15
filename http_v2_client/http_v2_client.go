@@ -97,7 +97,7 @@ func NewHttpV2Client(Host string, Port int, opts ...Option) *HttpV2Client {
 func (c *HttpV2Client) Connect() error {
 	ConsoleLogger.Println(fmt.Sprintf("Connecting %s://%s:%d%s", c.Protocol, c.Host, c.Port, c.Path))
 	if strings.ToLower(c.Protocol) == "https" {
-		c.TcpConn, _ = tls.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port), &tls.Config{InsecureSkipVerify: true})
+		c.TcpConn, _ = tls.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port), &tls.Config{})
 	} else if strings.ToLower(c.Protocol) == "http" {
 		c.TcpConn, _ = net.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port))
 	} else {
@@ -114,7 +114,7 @@ func (c *HttpV2Client) SendHeaders(headers []string) error {
 		return err
 	}
 
-	if _, err := c.TcpConn.Write([]byte(fmt.Sprintf("%s /%s/ HTTP/1.1%s", "POST", c.Path, CRLF))); err != nil {
+	if _, err := c.TcpConn.Write([]byte(fmt.Sprintf("%s %s HTTP/1.1%s", "POST", c.Path, CRLF))); err != nil {
 		return err
 	}
 	for _, v := range headers {
